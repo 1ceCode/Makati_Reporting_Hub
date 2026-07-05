@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Makati Report Hub</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .admin-nav {
+            background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+        }
+        .status-select {
+            padding: 0.3rem;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        .stat-card {
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        .stat-card.active {
+            border: 3px solid #facc15;
+            box-shadow: 0 0 15px rgba(250, 204, 21, 0.6);
+        }
+        .charts-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .chart-box {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        @media (max-width: 768px) {
+            .charts-container {
+                grid-template-columns: 1fr;
+            }
+        }
+        /* Full Page Modal Overlay */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            padding: 1rem;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 700px;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 2rem;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            position: relative;
+        }
+        .close-btn {
+            position: absolute;
+            top: 1rem; right: 1.5rem;
+            font-size: 1.8rem;
+            cursor: pointer;
+            color: #64748b;
+        }
+        .close-btn:hover { color: #1e293b; }
+        .clickable-row {
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .clickable-row:hover {
+            background: #f8fafc;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar admin-nav">
+        <div class="nav-brand">
+            <img src="assets/logo.png" alt="Logo">
+            <strong>REPORT HUB - CITY ADMIN</strong>
+        </div>
+        <div class="nav-links">
+            <a href="admin_dashboard.html">Command Center</a>
+            <a href="#" onclick="logout(); return false;">Log out</a>
+        </div>
+        <div class="nav-contact">
+            <span>🛡️ Logged in as Administrator</span>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="dashboard-header">
+            <h2>Makati Command Center (Cloud SQL)</h2>
+            <p style="color: var(--text-dark);">Review and manage live citizen environmental reports across all barangays.</p>
+        </div>
+
+        <div id="statusMsg" style="color: green; margin-bottom: 1.5rem; display: none; font-weight: bold; background: #dcfce7; padding: 0.8rem; border-radius: 8px;"></div>
+
+        <!-- Clickable Stat Cards for Filtering -->
+        <div class="stats-grid">
+            <div class="stat-card active" id="cardAll" onclick="filterReports('All')" style="background: rgba(30, 58, 138, 0.9);">
+                <h3>Total City Reports</h3>
+                <div class="value" id="statTotal">-</div>
+                <small style="color: #cbd5e1;">Click to view ALL</small>
+            </div>
+            <div class="stat-card" id="cardPending" onclick="filterReports('Pending')" style="background: rgba(133, 77, 14, 0.9);">
+                <h3>Pending Action 🟡</h3>
+                <div class="value" id="statPending">-</div>
+                <small style="color: #fef08a;">Click to filter Pending</small>
+            </div>
+            <div class="stat-card" id="cardProgress" onclick="filterReports('In Progress')" style="background: rgba(30, 64, 175, 0.9);">
+                <h3>In Progress 🔵</h3>
+                <div class="value" id="statProgress">-</div>
+                <small style="color: #bfdbfe;">Click to filter In Progress</small>
+            </div>
+            <div class="stat-card" id="cardResolved" onclick="filterReports('Resolved')" style="background: rgba(22, 101, 52, 0.9);">
+                <h3>Resolved 🟢</h3>
+                <div class="value" id="statResolved">-</div>
+                <small style="color: #bbf7d0;">Click to filter Resolved</small>
+            </div>
+        </div>
+
+        <!-- Graphs Section -->
+        <div class="charts-container">
+            <div class="chart-box">
+                <h3 style="margin-bottom: 1rem; color: var(--primary-color); font-size: 1.1rem;">📍 Hotspot Summary: Top Reported Streets</h3>
+                <canvas id="barChart"></canvas>
+            </div>
+            <div class="chart-box">
+                <h3 style="margin-bottom: 1rem; color: var(--primary-color); font-size: 1.1rem;">📊 Breakdown by Issue Type</h3>
+                <canvas id="pieChart"></canvas>
+            </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="color: var(--primary-color);" id="tableTitle">All Submitted Issues (Live)</h3>
+            <span style="font-size: 0.85rem; color: #64748b;">💡 Tip: Click any ticket row to open Full Page View & leave feedback</span>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Citizen</th>
+                        <th>Contact</th>
+                        <th>Issue</th>
+                        <th>Location</th>
+                        <th>Status Action</th>
+                        <th>Admin Feedback</th>
+                    </tr>
+                </thead>
+                <tbody id="adminReportsBody">
+                    <tr><td colspan="7" style="text-align: center;">Fetching live database reports...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Full Page Modal Overlay -->
+    <div class="modal-overlay" id="reportModal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">&times;</span>
+            <h2 id="modalTitle" style="color: var(--primary-color); margin-bottom: 0.5rem;">Ticket Details</h2>
+            <p style="color: #64748b; margin-bottom: 1.5rem;" id="modalSubtitle"></p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; background: #f8fafc; padding: 1rem; border-radius: 8px;">
+                <div>
+                    <strong>Citizen Name:</strong> <span id="modalCitizen"></span><br>
+                    <strong>Contact:</strong> <span id="modalContact"></span>
+                </div>
+                <div>
+                    <strong>Location:</strong> <span id="modalLocation"></span><br>
+                    <strong>Date Submitted:</strong> <span id="modalDate"></span>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 1.5rem;">
+                <strong style="display: block; margin-bottom: 0.5rem; color: #334155;">Issue Description:</strong>
+                <div id="modalDesc" style="background: #f1f5f9; padding: 1rem; border-radius: 8px; line-height: 1.5;"></div>
+            </div>
+
+            <div style="margin-bottom: 1.5rem;" id="modalPhotoContainer">
+                <strong style="display: block; margin-bottom: 0.5rem; color: #334155;">Attached Photo:</strong>
+                <img id="modalPhoto" src="" alt="Report Photo" style="max-width: 100%; max-height: 350px; border-radius: 8px; border: 1px solid #cbd5e1;">
+            </div>
+
+            <div style="border-top: 1px solid #e2e8f0; padding-top: 1.5rem;">
+                <h3 style="color: var(--primary-color); margin-bottom: 0.8rem;">💬 Official Admin Feedback / Reply</h3>
+                <textarea id="modalFeedbackInput" class="form-control" rows="3" placeholder="Type official response or updates for the citizen here..."></textarea>
+                <button class="btn" style="margin-top: 0.8rem; width: 100%;" onclick="submitModalFeedback()">Save & Send Feedback</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+    <script>
+        const user = getCurrentUser();
+        if (!user || user.role !== 'admin') {
+            window.location.href = 'index.html';
+        }
+
+        let allReports = [];
+        let currentFilter = 'All';
+        let currentModalReportId = null;
+        let barChartInstance = null;
+        let pieChartInstance = null;
+
+        async function initDashboard() {
+            allReports = await getReports();
+            updateStatCounts();
+            renderCharts();
+            renderTable();
+        }
+
+        function updateStatCounts() {
+            document.getElementById('statTotal').textContent = allReports.length;
+            document.getElementById('statPending').textContent = allReports.filter(r => r.status === 'Pending').length;
+            document.getElementById('statProgress').textContent = allReports.filter(r => r.status === 'In Progress').length;
+            document.getElementById('statResolved').textContent = allReports.filter(r => r.status === 'Resolved').length;
+        }
+
+        function filterReports(status) {
+            currentFilter = status;
+            
+            // Update active styling on cards
+            document.querySelectorAll('.stat-card').forEach(card => card.classList.remove('active'));
+            if (status === 'All') document.getElementById('cardAll').classList.add('active');
+            if (status === 'Pending') document.getElementById('cardPending').classList.add('active');
+            if (status === 'In Progress') document.getElementById('cardProgress').classList.add('active');
+            if (status === 'Resolved') document.getElementById('cardResolved').classList.add('active');
+
+            document.getElementById('tableTitle').textContent = status === 'All' ? 'All Submitted Issues (Live)' : `Filtered Tickets: ${status}`;
+            renderTable();
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('adminReportsBody');
+            tbody.innerHTML = '';
+
+            const filtered = currentFilter === 'All' ? allReports : allReports.filter(r => r.status === currentFilter);
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem;">No reports found matching status: <strong>${currentFilter}</strong></td></tr>`;
+                return;
+            }
+
+            filtered.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.className = 'clickable-row';
+                
+                const feedbackText = r.admin_feedback ? `<span style="color: #047857; font-weight: 500;">💬 ${r.admin_feedback}</span>` : '<span style="color: #94a3b8; font-style: italic;">No feedback yet</span>';
+
+                tr.innerHTML = `
+                    <td onclick="openModal(${r.id})">#${String(r.id).padStart(3, '0')}</td>
+                    <td onclick="openModal(${r.id})"><strong>${r.citizen_name}</strong></td>
+                    <td onclick="openModal(${r.id})">${r.citizen_contact}</td>
+                    <td onclick="openModal(${r.id})">
+                        <strong style="color: var(--primary-color);">${r.issue_type}</strong>
+                        <p style="font-size:0.85rem; margin-top:0.3rem; color: #475569;">${r.description.substring(0, 50)}${r.description.length > 50 ? '...' : ''}</p>
+                    </td>
+                    <td onclick="openModal(${r.id})">${r.location}</td>
+                    <td>
+                        <select class="status-select" onchange="handleStatusChange(${r.id}, this.value)">
+                            <option value="Pending" ${r.status === 'Pending' ? 'selected' : ''}>Pending</option>
+                            <option value="In Progress" ${r.status === 'In Progress' ? 'selected' : ''}>In Progress</option>
+                            <option value="Resolved" ${r.status === 'Resolved' ? 'selected' : ''}>Resolved</option>
+                        </select>
+                    </td>
+                    <td onclick="openModal(${r.id})">${feedbackText}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderCharts() {
+            // Bar Chart: Top Reported Street Locations
+            const locCounts = {};
+            allReports.forEach(r => {
+                const loc = r.location || 'Unknown';
+                locCounts[loc] = (locCounts[loc] || 0) + 1;
+            });
+            const sortedLocs = Object.entries(locCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            const locLabels = sortedLocs.map(item => item[0]);
+            const locData = sortedLocs.map(item => item[1]);
+
+            if (barChartInstance) barChartInstance.destroy();
+            const barCtx = document.getElementById('barChart').getContext('2d');
+            barChartInstance = new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: locLabels.length ? locLabels : ['No Reports'],
+                    datasets: [{
+                        label: 'Number of Reports',
+                        data: locData.length ? locData : [0],
+                        backgroundColor: '#3b82f6',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                }
+            });
+
+            // Pie Chart: Breakdown by Issue Type
+            const issueCounts = {};
+            allReports.forEach(r => {
+                const issue = r.issue_type || 'Others';
+                issueCounts[issue] = (issueCounts[issue] || 0) + 1;
+            });
+            const issueLabels = Object.keys(issueCounts);
+            const issueData = Object.values(issueCounts);
+
+            if (pieChartInstance) pieChartInstance.destroy();
+            const pieCtx = document.getElementById('pieChart').getContext('2d');
+            pieChartInstance = new Chart(pieCtx, {
+                type: 'pie',
+                data: {
+                    labels: issueLabels.length ? issueLabels : ['No Reports'],
+                    datasets: [{
+                        data: issueData.length ? issueData : [1],
+                        backgroundColor: ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6']
+                    }]
+                },
+                options: { responsive: true }
+            });
+        }
+
+        window.handleStatusChange = async function(id, newStatus) {
+            if (await updateReportStatus(id, newStatus)) {
+                showToast(`Report #${String(id).padStart(3, '0')} status updated to ${newStatus}.`);
+                const rep = allReports.find(r => r.id === id);
+                if (rep) rep.status = newStatus;
+                updateStatCounts();
+            }
+        };
+
+        function openModal(reportId) {
+            currentModalReportId = reportId;
+            const r = allReports.find(item => item.id === reportId);
+            if (!r) return;
+
+            document.getElementById('modalTitle').textContent = `Ticket #${String(r.id).padStart(3, '0')} - ${r.issue_type}`;
+            document.getElementById('modalSubtitle').textContent = `Status: ${r.status}`;
+            document.getElementById('modalCitizen').textContent = r.citizen_name;
+            document.getElementById('modalContact').textContent = r.citizen_contact;
+            document.getElementById('modalLocation').textContent = r.location;
+            document.getElementById('modalDate').textContent = r.date || 'Recent';
+            document.getElementById('modalDesc').textContent = r.description;
+            
+            const photoEl = document.getElementById('modalPhoto');
+            const photoContainer = document.getElementById('modalPhotoContainer');
+            if (r.image) {
+                photoEl.src = r.image;
+                photoContainer.style.display = 'block';
+            } else {
+                photoContainer.style.display = 'none';
+            }
+
+            document.getElementById('modalFeedbackInput').value = r.admin_feedback || '';
+            document.getElementById('reportModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('reportModal').style.display = 'none';
+            currentModalReportId = null;
+        }
+
+        window.submitModalFeedback = async function() {
+            if (!currentModalReportId) return;
+            const feedbackText = document.getElementById('modalFeedbackInput').value.trim();
+            
+            if (await updateReportFeedback(currentModalReportId, feedbackText)) {
+                showToast(`Feedback sent for Ticket #${String(currentModalReportId).padStart(3, '0')}!`);
+                const rep = allReports.find(r => r.id === currentModalReportId);
+                if (rep) rep.admin_feedback = feedbackText;
+                renderTable();
+                closeModal();
+            } else {
+                alert('Failed to send feedback. Make sure you ran the ALTER TABLE command in Supabase SQL Editor!');
+            }
+        };
+
+        function showToast(msgText) {
+            const msg = document.getElementById('statusMsg');
+            msg.textContent = msgText;
+            msg.style.display = 'block';
+            setTimeout(() => msg.style.display = 'none', 3500);
+        }
+
+        initDashboard();
+    </script>
+</body>
+</html>

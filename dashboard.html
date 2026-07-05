@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Makati Report Hub</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .charts-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .chart-box {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        @media (max-width: 768px) {
+            .charts-container {
+                grid-template-columns: 1fr;
+            }
+        }
+        /* Full Page Modal Overlay */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            padding: 1rem;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 700px;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 2rem;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            position: relative;
+        }
+        .close-btn {
+            position: absolute;
+            top: 1rem; right: 1.5rem;
+            font-size: 1.8rem;
+            cursor: pointer;
+            color: #64748b;
+        }
+        .close-btn:hover { color: #1e293b; }
+        .clickable-row {
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .clickable-row:hover {
+            background: #f8fafc;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <img src="assets/logo.png" alt="Logo">
+            <strong>REPORT HUB</strong>
+        </div>
+        <div class="nav-links">
+            <a href="dashboard.html">Dashboard</a>
+            <a href="submit-report.html">Submit Report</a>
+            <a href="#" onclick="logout(); return false;">Log out</a>
+        </div>
+        <div class="nav-contact">
+            <span>📞 Emergency: 168 / (02) 8870-1000</span>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="dashboard-header">
+            <h2>Welcome, <span id="userName">Citizen</span>!</h2>
+            <p style="color: var(--text-dark);">Monitor your environmental reports and city-wide issue hotspots.</p>
+            <a href="submit-report.html" class="btn" style="margin-top: 1rem; display: inline-block;">+ Submit New Report</a>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>My Total Reports</h3>
+                <div class="value" id="totalReports">0</div>
+            </div>
+            <div class="stat-card" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                <h3>Pending Action</h3>
+                <div class="value" id="pendingReports">0</div>
+            </div>
+            <div class="stat-card" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+                <h3>In Progress</h3>
+                <div class="value" id="progressReports">0</div>
+            </div>
+            <div class="stat-card" style="background: linear-gradient(135deg, #10b981, #047857);">
+                <h3>Resolved</h3>
+                <div class="value" id="resolvedReports">0</div>
+            </div>
+        </div>
+
+        <!-- Graphs Section -->
+        <div class="charts-container">
+            <div class="chart-box">
+                <h3 style="margin-bottom: 1rem; color: var(--primary-color); font-size: 1.1rem;">📍 Makati Hotspot Summary (Top Streets)</h3>
+                <canvas id="barChart"></canvas>
+            </div>
+            <div class="chart-box">
+                <h3 style="margin-bottom: 1rem; color: var(--primary-color); font-size: 1.1rem;">📊 City-Wide Issue Breakdown</h3>
+                <canvas id="pieChart"></canvas>
+            </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="color: var(--primary-color);">My Submitted Reports</h3>
+            <span style="font-size: 0.85rem; color: #64748b;">💡 Click any row to view full details & official replies</span>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Issue Type</th>
+                        <th>Location</th>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>Official City Reply</th>
+                    </tr>
+                </thead>
+                <tbody id="reportsTableBody">
+                    <tr><td colspan="6" style="text-align: center;">Loading your reports...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Full Page Modal Overlay -->
+    <div class="modal-overlay" id="reportModal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">&times;</span>
+            <h2 id="modalTitle" style="color: var(--primary-color); margin-bottom: 0.5rem;">Ticket Details</h2>
+            <p style="color: #64748b; margin-bottom: 1.5rem;" id="modalSubtitle"></p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; background: #f8fafc; padding: 1rem; border-radius: 8px;">
+                <div>
+                    <strong>Submitted By:</strong> <span id="modalCitizen"></span><br>
+                    <strong>Contact:</strong> <span id="modalContact"></span>
+                </div>
+                <div>
+                    <strong>Location:</strong> <span id="modalLocation"></span><br>
+                    <strong>Date Submitted:</strong> <span id="modalDate"></span>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 1.5rem;">
+                <strong style="display: block; margin-bottom: 0.5rem; color: #334155;">Issue Description:</strong>
+                <div id="modalDesc" style="background: #f1f5f9; padding: 1rem; border-radius: 8px; line-height: 1.5;"></div>
+            </div>
+
+            <div style="margin-bottom: 1.5rem;" id="modalPhotoContainer">
+                <strong style="display: block; margin-bottom: 0.5rem; color: #334155;">Attached Photo:</strong>
+                <img id="modalPhoto" src="" alt="Report Photo" style="max-width: 100%; max-height: 350px; border-radius: 8px; border: 1px solid #cbd5e1;">
+            </div>
+
+            <div style="border-top: 1px solid #e2e8f0; padding-top: 1.5rem; background: #ecfdf5; padding: 1.5rem; border-radius: 8px;">
+                <h3 style="color: #047857; margin-bottom: 0.5rem;">💬 Official City Feedback / Reply</h3>
+                <p id="modalFeedbackText" style="color: #065f46; font-size: 1.05rem; font-weight: 500;"></p>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+    <script>
+        const user = getCurrentUser();
+        if (!user) {
+            window.location.href = 'index.html';
+        } else {
+            document.getElementById('userName').textContent = user.firstName;
+        }
+
+        let myReports = [];
+        let allCityReports = [];
+
+        async function loadDashboard() {
+            myReports = await getReports(user.id);
+            allCityReports = await getReports(); // get all reports for city-wide graphs
+            
+            updateStats();
+            renderCharts();
+            renderTable();
+        }
+
+        function updateStats() {
+            document.getElementById('totalReports').textContent = myReports.length;
+            document.getElementById('pendingReports').textContent = myReports.filter(r => r.status === 'Pending').length;
+            document.getElementById('progressReports').textContent = myReports.filter(r => r.status === 'In Progress').length;
+            document.getElementById('resolvedReports').textContent = myReports.filter(r => r.status === 'Resolved').length;
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('reportsTableBody');
+            tbody.innerHTML = '';
+
+            if (myReports.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem;">You have not submitted any reports yet. <a href="submit-report.html" style="color:var(--primary-color); font-weight:bold;">Submit one now</a></td></tr>';
+                return;
+            }
+
+            myReports.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.className = 'clickable-row';
+                tr.onclick = () => openModal(r.id);
+
+                let statusClass = 'status-pending';
+                if (r.status === 'In Progress') statusClass = 'status-progress';
+                if (r.status === 'Resolved') statusClass = 'status-resolved';
+
+                const replyText = r.admin_feedback ? `<span style="color: #047857; font-weight: bold;">💬 ${r.admin_feedback}</span>` : '<span style="color: #94a3b8; font-style: italic;">Pending review...</span>';
+
+                tr.innerHTML = `
+                    <td>#${String(r.id).padStart(3, '0')}</td>
+                    <td><strong>${r.issue_type}</strong></td>
+                    <td>${r.location}</td>
+                    <td>${r.date || 'Recent'}</td>
+                    <td><span class="status-badge ${statusClass}">${r.status}</span></td>
+                    <td>${replyText}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderCharts() {
+            // Bar Chart: Top Reported Street Locations across the city
+            const locCounts = {};
+            allCityReports.forEach(r => {
+                const loc = r.location || 'Unknown';
+                locCounts[loc] = (locCounts[loc] || 0) + 1;
+            });
+            const sortedLocs = Object.entries(locCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            const locLabels = sortedLocs.map(item => item[0]);
+            const locData = sortedLocs.map(item => item[1]);
+
+            const barCtx = document.getElementById('barChart').getContext('2d');
+            new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: locLabels.length ? locLabels : ['No Reports'],
+                    datasets: [{
+                        label: 'Number of Reports',
+                        data: locData.length ? locData : [0],
+                        backgroundColor: '#3b82f6',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                }
+            });
+
+            // Pie Chart: Breakdown by Issue Type across the city
+            const issueCounts = {};
+            allCityReports.forEach(r => {
+                const issue = r.issue_type || 'Others';
+                issueCounts[issue] = (issueCounts[issue] || 0) + 1;
+            });
+            const issueLabels = Object.keys(issueCounts);
+            const issueData = Object.values(issueCounts);
+
+            const pieCtx = document.getElementById('pieChart').getContext('2d');
+            new Chart(pieCtx, {
+                type: 'pie',
+                data: {
+                    labels: issueLabels.length ? issueLabels : ['No Reports'],
+                    datasets: [{
+                        data: issueData.length ? issueData : [1],
+                        backgroundColor: ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6']
+                    }]
+                },
+                options: { responsive: true }
+            });
+        }
+
+        function openModal(reportId) {
+            const r = myReports.find(item => item.id === reportId);
+            if (!r) return;
+
+            document.getElementById('modalTitle').textContent = `Ticket #${String(r.id).padStart(3, '0')} - ${r.issue_type}`;
+            document.getElementById('modalSubtitle').textContent = `Status: ${r.status}`;
+            document.getElementById('modalCitizen').textContent = r.citizen_name;
+            document.getElementById('modalContact').textContent = r.citizen_contact;
+            document.getElementById('modalLocation').textContent = r.location;
+            document.getElementById('modalDate').textContent = r.date || 'Recent';
+            document.getElementById('modalDesc').textContent = r.description;
+            
+            const photoEl = document.getElementById('modalPhoto');
+            const photoContainer = document.getElementById('modalPhotoContainer');
+            if (r.image) {
+                photoEl.src = r.image;
+                photoContainer.style.display = 'block';
+            } else {
+                photoContainer.style.display = 'none';
+            }
+
+            document.getElementById('modalFeedbackText').textContent = r.admin_feedback || 'No official response from City Administration yet. Please check back soon!';
+            document.getElementById('reportModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('reportModal').style.display = 'none';
+        }
+
+        loadDashboard();
+    </script>
+</body>
+</html>
